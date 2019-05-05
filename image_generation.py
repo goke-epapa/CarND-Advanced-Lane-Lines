@@ -68,6 +68,12 @@ def color_threshold(img, sthresh=(0, 255), vthresh=(0, 255)):
 
     return s_binary_output
 
+
+def warp_image(img, src, dst):
+    M = cv2.getPerspectiveTransform(src, dst)
+
+    return cv2.warpPerspective(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
+
 def find_lane_pixels(binary_warped):
     # Take a histogram of the bottom half of the image
     histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
@@ -81,7 +87,7 @@ def find_lane_pixels(binary_warped):
 
     # HYPERPARAMETERS
     # Choose the number of sliding windows
-    nwindows = 9
+    nwindows = 35
     # Set the width of the windows +/- margin
     margin = 100
     # Set minimum number of pixels found to recenter window
@@ -206,40 +212,33 @@ for index, filename in enumerate(test_images):
     height_percent = 0.62 # percent for trapezoid height
     bottom_trim = 0.935 # percent from top to bottom to avoid car hood
 
-    src = np.float32(
-        [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-        [((img_size[0] / 6) - 10), img_size[1]],
-        [(img_size[0] * 5 / 6) + 60, img_size[1]],
-        [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]]
-    )
+    # src = np.float32(
+    #     [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
+    #     [((img_size[0] / 6) - 10), img_size[1]],
+    #     [(img_size[0]  / 6) + 10, img_size[1]],
+    #     [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]]
+    # )
 
-    dst = np.float32(
-        [[(img_size[0] / 4), 0],
-        [(img_size[0] / 4), img_size[1]],
-        [(img_size[0] * 3 / 4), img_size[1]],
-        [(img_size[0] * 3 / 4), 0]]
-    )
+    src = np.float32([[690,450],[1110,img_size[1]],[175,img_size[1]],[595,450]])
 
-    # src = np.float32([
-    #     [img_size[0] * (.5 - mid_width / 2), img_size[1] * height_percent],
-    #     [img_size[0] * (.5 + mid_width / 2), img_size[1] * height_percent],
-    #     [img_size[0] * (.5 - bottom_width / 2), img_size[1] * bottom_trim],
-    #     [img_size[0] * (.5 + bottom_width / 2), img_size[1] * bottom_trim]
-    # ])
-    # offset = img_size[0] * 0.25
-    # dst = np.float32([
-    #     [offset, 0],
-    #     [img_size[0] - offset, 0],
-    #     [img_size[0] - offset, img_size[1]],
-    #     [offset, img_size[1]]
-    # ])
+    offset = 300
+
+    dst = np.float32([
+        [img_size[0] - offset, 0],
+        [img_size[0] - offset, img_size[1]],
+        [offset, img_size[1]],
+        [offset, 0]
+    ])
+
+    # cv2.polylines(pre_process_image, [src], True, (0,255,255), 3)
 
     # Perform the transformation
-    M = cv2.getPerspectiveTransform(src, dst)
-    Minv = cv2.getPerspectiveTransform(dst, src)
-    warped_img = cv2.warpPerspective(pre_process_image, M, img_size, flags=cv2.INTER_LINEAR)
+    warped_image = warp_image(pre_process_image, src, dst)
 
-    result = warped_img
+    # Find lane pixels and fit a polynomial to the lane lines
+    fitted_lane_img = fit_polynomial(warped_image)
+
+    result = fitted_lane_img
 
     write_fname = './test_images/tracked' + str(index) + '.jpg'
     cv2.imwrite(write_fname, result)
