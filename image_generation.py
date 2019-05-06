@@ -78,8 +78,9 @@ def color_threshold(img, sthresh=(0, 255), rthresh=(0, 255)):
 
 def warp_image(img, src, dst):
     M = cv2.getPerspectiveTransform(src, dst)
+    Minv = cv2.getPerspectiveTransform(dst, src)
 
-    return cv2.warpPerspective(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR)
+    return cv2.warpPerspective(img, M, (img.shape[1], img.shape[0]), flags=cv2.INTER_LINEAR), Minv
 
 def find_lane_pixels(binary_warped):
     # Take a histogram of the bottom half of the image
@@ -94,11 +95,11 @@ def find_lane_pixels(binary_warped):
 
     # HYPERPARAMETERS
     # Choose the number of sliding windows
-    nwindows = 35
+    nwindows = 25
     # Set the width of the windows +/- margin
     margin = 100
     # Set minimum number of pixels found to recenter window
-    minpix = 50
+    minpix = 80
 
     # Set height of windows - based on nwindows above and image shape
     window_height = np.int(binary_warped.shape[0]//nwindows)
@@ -193,6 +194,48 @@ def fit_polynomial(binary_warped):
 
     return out_img
 
+def window_mask(width, height, img_ref, center,level):
+    output = np.zeros_like(img_ref)
+    output[int(img_ref.shape[0]-(level+1)*height):int(img_ref.shape[0]-level*height),max(0,int(center-width/2)):min(int(center+width/2),img_ref.shape[1])] = 1
+    return output
+
+def find_window_centroids(image, window_width, window_height, margin):
+    window_centroids = [] # Store the (left,right) window centroid positions per level
+    window = np.ones(window_width) # Create our window template that we will use for convolutions
+
+    # First find the two starting positions for the left and right lane by using np.sum to get the vertical image slice
+    # and then np.convolve the vertical image slice with the window template
+
+    # Sum quarter bottom of image to get slice, could use a different ratio
+    l_sum = np.sum(image[int(3*image.shape[0]/4):,:int(image.shape[1]/2)], axis=0)
+    l_center = np.argmax(np.convolve(window,l_sum))-window_width/2
+    r_sum = np.sum(image[int(3*image.shape[0]/4):,int(image.shape[1]/2):], axis=0)
+    r_center = np.argmax(np.convolve(window,r_sum))-window_width/2+int(image.shape[1]/2)
+
+    # Add what we found for the first layer
+    window_centroids.append((l_center,r_center))
+
+    # Go through each layer looking for max pixel locations
+    for level in range(1,(int)(image.shape[0]/window_height)):
+        # convolve the window into the vertical slice of the image
+        image_layer = np.sum(image[int(image.shape[0]-(level+1)*window_height):int(image.shape[0]-level*window_height),:], axis=0)
+        conv_signal = np.convolve(window, image_layer)
+        # Find the best left centroid by using past left center as a reference
+        # Use window_width/2 as offset because convolution signal reference is at right side of window, not center of window
+        offset = window_width/2
+        l_min_index = int(max(l_center+offset-margin,0))
+        l_max_index = int(min(l_center+offset+margin,image.shape[1]))
+        l_center = np.argmax(conv_signal[l_min_index:l_max_index])+l_min_index-offset
+        # Find the best right centroid by using past right center as a reference
+        r_min_index = int(max(r_center+offset-margin,0))
+        r_max_index = int(min(r_center+offset+margin,image.shape[1]))
+        r_center = np.argmax(conv_signal[r_min_index:r_max_index])+r_min_index-offset
+        # Add what we found for that layer
+        window_centroids.append((l_center,r_center))
+
+    return window_centroids
+
+
 dist_pickle = pickle.load(open('./camera_cal/calibration_pickle.p', 'rb'))
 
 mtx = dist_pickle['mtx']
@@ -221,20 +264,20 @@ for index, filename in enumerate(test_images):
     # defining perspective transformation area
     img_size = (img.shape[1], img.shape[0])
 
-    # Source points - defined area of lane line edges
-    ax = 536
-    ay = 469
-    bx = 737
-    by = 469
-    cx = 1140
-    cy = 665
-    dx = 138
-    dy = 662
-    src = np.float32([[ax,ay],[bx, by],[cx, cy],[dx, dy]])
-
-    # 4 destination points to transfer
-    dst = np.float32([[dx, ay],[cx, by],
-                      [cx, cy],[dx, dy]])
+    # # Source points - defined area of lane line edges
+    # ax = 536
+    # ay = 469
+    # bx = 737
+    # by = 469
+    # cx = 1140
+    # cy = 665
+    # dx = 138
+    # dy = 662
+    # src = np.float32([[ax,ay],[bx, by],[cx, cy],[dx, dy]])
+    #
+    # # 4 destination points to transfer
+    # dst = np.float32([[dx, ay],[cx, by],
+    #                   [cx, cy],[dx, dy]])
 
         # Source points - defined area of lane line edges
     src = np.float32([[690,450],[1110,img_size[1]],[175,img_size[1]],[595,450]])
@@ -245,16 +288,45 @@ for index, filename in enumerate(test_images):
                       [offset, img_size[1]],[offset, 0]])
 
     # Perform the transformation
-    warped_image = warp_image(pre_process_image, src, dst)
+    warped_image, Minv = warp_image(pre_process_image, src, dst)
 
-    # Find lane pixels and fit a polynomial to the lane lines
-    fitted_lane_img = fit_polynomial(warped_image)
+    # # Find lane pixels and fit a polynomial to the lane lines
+    # fitted_lane_img = fit_polynomial(warped_image)
 
-    result = fitted_lane_img
+    window_width = 150
+    window_height = 72
+    margin = 50
+
+    window_centroids = find_window_centroids(warped_image, window_width, window_height, margin)
+
+    # If we found any window centers
+    if len(window_centroids) > 0:
+
+        # Points used to draw all the left and right windows
+        l_points = np.zeros_like(warped_image)
+        r_points = np.zeros_like(warped_image)
+
+        # Go through each level and draw the windows
+        for level in range(0,len(window_centroids)):
+            # Window_mask is a function to draw window areas
+            l_mask = window_mask(window_width,window_height,warped_image,window_centroids[level][0],level)
+            r_mask = window_mask(window_width,window_height,warped_image,window_centroids[level][1],level)
+            # Add graphic points from window mask here to total pixels found
+            l_points[(l_points == 255) | ((l_mask == 1) ) ] = 255
+            r_points[(r_points == 255) | ((r_mask == 1) ) ] = 255
+
+        # Draw the results
+        template = np.array(r_points+l_points,np.uint8) # add both left and right window pixels together
+        zero_channel = np.zeros_like(template) # create a zero color channel
+        template = np.array(cv2.merge((zero_channel,template,zero_channel)),np.uint8) # make window pixels green
+        warpage= np.dstack((warped_image, warped_image, warped_image))*255 # making the original road pixels 3 color channels
+        img_with_windows = cv2.addWeighted(warpage, 1, template, 0.5, 0.0) # overlay the orignal road image with window results
+
+    # If no window centers found, just display orginal road image
+    else:
+        img_with_windows = np.array(cv2.merge((warped_image,warped_image,warped_image)),np.uint8)
+
+    result = img_with_windows
 
     write_fname = './test_images/tracked' + str(index + 1) + '.jpg'
     cv2.imwrite(write_fname, result)
-
-# img = plt.imread('./test_images/straight_lines1.jpg')
-# plt.imshow(img)
-# plt.show()
