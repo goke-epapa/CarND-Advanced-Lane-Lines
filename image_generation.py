@@ -386,9 +386,9 @@ dist = dist_pickle['dist']
 #     cv2.imwrite(write_fname, result)
 
 
-video = VideoFileClip('harder_challenge_video.mp4')
+video = VideoFileClip('project_video.mp4')
 
 img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
 
-vid_output = 'harder_challenge_video_result.mp4'
+vid_output = 'project_video_result.mp4'
 img_stream.write_videofile(vid_output, audio=False)
