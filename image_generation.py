@@ -4,6 +4,10 @@ import glob
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Import everything needed to process video clip for later
+from moviepy.editor import VideoFileClip
+from IPython.display import HTML
+
 def abs_sobel_thresh(img, orient='x', thresh=(0, 255)):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
@@ -169,8 +173,8 @@ def fit_polynomial(binary_warped):
     # Find our lane pixels first
     leftx, lefty, rightx, righty, out_img = find_lane_pixels(binary_warped)
 
-    left_fit = np.polyfit(leftx, lefty, 2)
-    right_fit = np.polyfit(rightx, righty, 2)
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
 
     # Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0]-1, binary_warped.shape[0] )
@@ -189,10 +193,10 @@ def fit_polynomial(binary_warped):
     out_img[righty, rightx] = [0, 0, 255]
 
     # Plots the left and right polynomials on the lane lines
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
+    #plt.plot(left_fitx, ploty, color='yellow')
+    #plt.plot(right_fitx, ploty, color='yellow')
 
-    return out_img
+    return out_img, left_fitx, right_fitx, ploty
 
 def window_mask(width, height, img_ref, center,level):
     output = np.zeros_like(img_ref)
@@ -235,22 +239,80 @@ def find_window_centroids(image, window_width, window_height, margin):
 
     return window_centroids
 
+def do_centroids(warped):
+    window_width = 150
+    window_height = 72
+    margin = 50
 
-dist_pickle = pickle.load(open('./camera_cal/calibration_pickle.p', 'rb'))
+    window_centroids = find_window_centroids(warped, window_width, window_height, margin)
 
-mtx = dist_pickle['mtx']
-dist = dist_pickle['dist']
+    # If we found any window centers
+    if len(window_centroids) > 0:
 
-test_images = glob.glob('./test_images/test*.jpg')
+        # Points used to draw all the left and right windows
+        l_points = np.zeros_like(warped)
+        r_points = np.zeros_like(warped)
 
-for index, filename in enumerate(test_images):
-    img = cv2.imread(filename)
-    dst = cv2.undistort(img, mtx, dist, None, mtx)
+        # Go through each level and draw the windows
+        for level in range(0,len(window_centroids)):
+            # Window_mask is a function to draw window areas
+            l_mask = window_mask(window_width,window_height,warped,window_centroids[level][0],level)
+            r_mask = window_mask(window_width,window_height,warped,window_centroids[level][1],level)
+            # Add graphic points from window mask here to total pixels found
+            l_points[(l_points == 255) | ((l_mask == 1) ) ] = 255
+            r_points[(r_points == 255) | ((r_mask == 1) ) ] = 255
 
+        # Draw the results
+        template = np.array(r_points+l_points,np.uint8) # add both left and right window pixels together
+        zero_channel = np.zeros_like(template) # create a zero color channel
+        template = np.array(cv2.merge((zero_channel,template,zero_channel)),np.uint8) # make window pixels green
+        warpage= np.dstack((warped, warped, warped))*255 # making the original road pixels 3 color channels
+        img_with_windows = cv2.addWeighted(warpage, 1, template, 0.5, 0.0) # overlay the orignal road image with window results
+
+    # If no window centers found, just display orginal road image
+    else:
+        img_with_windows = np.array(cv2.merge((warped,warped,warped)),np.uint8)
+
+    return img_with_windows
+
+def draw_lines(undist, warped, left_fitx, right_fitx, ploty, minv):
+    # Create an image to draw the lines on
+    warp_zero = np.zeros_like(warped).astype(np.uint8)
+    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+    # Recast the x and y points into usable format for cv2.fillPoly()
+    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts = np.hstack((pts_left, pts_right))
+
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+
+    # Warp the blank back to original image space using inverse perspective matrix (Minv)
+    newwarp = cv2.warpPerspective(color_warp, minv, (undist.shape[1], undist.shape[0]))
+
+    # Combine the result with the original image
+    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
+    return result
+
+def measure_curvature_real(ploty, left_fit_cr, right_fit_cr, ym_per_pix):
+    '''
+    Calculates the curvature of polynomial functions in meters.
+    '''
+
+    # Define y-value where we want radius of curvature
+    # We'll choose the maximum y-value, corresponding to the bottom of the image
+    y_eval = np.max(ploty) * ym_per_pix
+
+    left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval + left_fit_cr[1]) ** 2) ** 1.5) / abs(2 * left_fit_cr[0])
+    right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval + right_fit_cr[1]) ** 2) ** 1.5) / abs(2 * right_fit_cr[0])
+
+    return left_curverad, right_curverad
+
+def get_binary_pixels_of_interest(img):
     # Pre process image and generate binary pixels of interest
-    pre_process_image = np.zeros_like(img[:,:,0])
-    gradx = abs_sobel_thresh(img, 'x', thresh=(60, 100))
-
+    output_binary = np.zeros_like(img[:,:,0])
     gradx = abs_sobel_thresh(img, 'x', thresh=(20, 100))
     mag_binary = mag_thresh(img, sobel_kernel=9, mag_thresh=(30, 100))
 
@@ -259,7 +321,15 @@ for index, filename in enumerate(test_images):
 
     s_binary = saturation_threshold(img, sthresh=(90, 255))
 
-    pre_process_image[(combined == 1) & (s_binary == 1) | (combined == 1) ^ (s_binary == 1) ] = 255
+    output_binary[(combined == 1) & (s_binary == 1) | (combined == 1) ^ (s_binary == 1) ] = 255
+
+    return output_binary
+
+def process_image(img, mtx, dist):
+    undistort = cv2.undistort(img, mtx, dist, None, mtx)
+
+    # Pre process image and generate binary pixels of interest
+    binary_pixels_of_interest = get_binary_pixels_of_interest(undistort)
 
     # defining perspective transformation area
     img_size = (img.shape[1], img.shape[0])
@@ -288,45 +358,37 @@ for index, filename in enumerate(test_images):
                       [offset, img_size[1]],[offset, 0]])
 
     # Perform the transformation
-    warped_image, Minv = warp_image(pre_process_image, src, dst)
+    warped_image, Minv = warp_image(binary_pixels_of_interest, src, dst)
+
+
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # # Find lane pixels and fit a polynomial to the lane lines
-    # fitted_lane_img = fit_polynomial(warped_image)
+    out_img, left_fitx, right_fitx, ploty = fit_polynomial(warped_image)
 
-    window_width = 150
-    window_height = 72
-    margin = 50
+    return draw_lines(undistort, warped_image, left_fitx, right_fitx, ploty, Minv)
 
-    window_centroids = find_window_centroids(warped_image, window_width, window_height, margin)
+dist_pickle = pickle.load(open('./camera_cal/calibration_pickle.p', 'rb'))
 
-    # If we found any window centers
-    if len(window_centroids) > 0:
+mtx = dist_pickle['mtx']
+dist = dist_pickle['dist']
 
-        # Points used to draw all the left and right windows
-        l_points = np.zeros_like(warped_image)
-        r_points = np.zeros_like(warped_image)
+# test_images = glob.glob('./test_images/test*.jpg')
+#
+# for index, filename in enumerate(test_images):
+#     img = cv2.imread(filename)
+#
+#     result = process_image(img, mtx, dist)
+#
+#     write_fname = './test_images/tracked' + str(index + 1) + '.jpg'
+#     cv2.imwrite(write_fname, result)
 
-        # Go through each level and draw the windows
-        for level in range(0,len(window_centroids)):
-            # Window_mask is a function to draw window areas
-            l_mask = window_mask(window_width,window_height,warped_image,window_centroids[level][0],level)
-            r_mask = window_mask(window_width,window_height,warped_image,window_centroids[level][1],level)
-            # Add graphic points from window mask here to total pixels found
-            l_points[(l_points == 255) | ((l_mask == 1) ) ] = 255
-            r_points[(r_points == 255) | ((r_mask == 1) ) ] = 255
 
-        # Draw the results
-        template = np.array(r_points+l_points,np.uint8) # add both left and right window pixels together
-        zero_channel = np.zeros_like(template) # create a zero color channel
-        template = np.array(cv2.merge((zero_channel,template,zero_channel)),np.uint8) # make window pixels green
-        warpage= np.dstack((warped_image, warped_image, warped_image))*255 # making the original road pixels 3 color channels
-        img_with_windows = cv2.addWeighted(warpage, 1, template, 0.5, 0.0) # overlay the orignal road image with window results
+video = VideoFileClip('harder_challenge_video.mp4')
 
-    # If no window centers found, just display orginal road image
-    else:
-        img_with_windows = np.array(cv2.merge((warped_image,warped_image,warped_image)),np.uint8)
+img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
 
-    result = img_with_windows
-
-    write_fname = './test_images/tracked' + str(index + 1) + '.jpg'
-    cv2.imwrite(write_fname, result)
+vid_output = 'harder_challenge_video_result.mp4'
+img_stream.write_videofile(vid_output, audio=False)
