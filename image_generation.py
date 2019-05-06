@@ -52,19 +52,26 @@ def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi/2)):
 
     return binary_output
 
-def color_threshold(img, sthresh=(0, 255), vthresh=(0, 255)):
+def saturation_threshold(img, sthresh=(0, 255)):
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     s_channel = hls[:,:,2]
     s_binary_output = np.zeros_like(s_channel)
     s_binary_output[(s_channel > sthresh[0]) & (s_channel <= sthresh[1])] = 1
 
-    hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV)
-    v_channel = hsv[:,:,2]
-    v_binary_output = np.zeros_like(v_channel)
-    v_binary_output[(v_channel > vthresh[0]) & (v_channel <= vthresh[1])] = 1
+    return s_binary_output
+
+def color_threshold(img, sthresh=(0, 255), rthresh=(0, 255)):
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    s_channel = hls[:,:,2]
+    s_binary_output = np.zeros_like(s_channel)
+    s_binary_output[(s_channel > sthresh[0]) & (s_channel <= sthresh[1])] = 1
+
+    r_channel = img[:,:,2]
+    r_binary_output = np.zeros_like(r_channel)
+    r_binary_output[(r_channel > rthresh[0]) & (r_channel <= rthresh[1])] = 1
 
     output = np.zeros_like(s_channel)
-    output[(s_binary_output == 1) & (v_binary_output == 1)] = 1
+    output[(s_binary_output == 1) | (r_binary_output == 1)] = 1
 
     return s_binary_output
 
@@ -199,38 +206,43 @@ for index, filename in enumerate(test_images):
 
     # Pre process image and generate binary pixels of interest
     pre_process_image = np.zeros_like(img[:,:,0])
-    gradx = abs_sobel_thresh(img, 'x', thresh=(12, 255))
-    grady = abs_sobel_thresh(img, 'y', thresh=(12, 255))
-    c_binary = color_threshold(img, sthresh=(100, 255), vthresh=(50, 255))
+    gradx = abs_sobel_thresh(img, 'x', thresh=(60, 100))
 
-    pre_process_image[(((gradx == 1) & (grady == 1) ) | (c_binary == 1))] = 255
+    gradx = abs_sobel_thresh(img, 'x', thresh=(20, 100))
+    mag_binary = mag_thresh(img, sobel_kernel=9, mag_thresh=(30, 100))
+
+    combined = np.zeros_like(mag_binary)
+    combined[((gradx == 1) & (mag_binary == 1))] = 1
+
+    s_binary = saturation_threshold(img, sthresh=(90, 255))
+
+    pre_process_image[(combined == 1) & (s_binary == 1) | (combined == 1) ^ (s_binary == 1) ] = 255
 
     # defining perspective transformation area
     img_size = (img.shape[1], img.shape[0])
-    bottom_width = 0.76 # percent of bottom trapezoid width
-    mid_width = 0.08 # percent of middle trapezoid width
-    height_percent = 0.62 # percent for trapezoid height
-    bottom_trim = 0.935 # percent from top to bottom to avoid car hood
 
-    # src = np.float32(
-    #     [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    #     [((img_size[0] / 6) - 10), img_size[1]],
-    #     [(img_size[0]  / 6) + 10, img_size[1]],
-    #     [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]]
-    # )
+    # Source points - defined area of lane line edges
+    ax = 536
+    ay = 469
+    bx = 737
+    by = 469
+    cx = 1140
+    cy = 665
+    dx = 138
+    dy = 662
+    src = np.float32([[ax,ay],[bx, by],[cx, cy],[dx, dy]])
 
+    # 4 destination points to transfer
+    dst = np.float32([[dx, ay],[cx, by],
+                      [cx, cy],[dx, dy]])
+
+        # Source points - defined area of lane line edges
     src = np.float32([[690,450],[1110,img_size[1]],[175,img_size[1]],[595,450]])
 
-    offset = 300
-
-    dst = np.float32([
-        [img_size[0] - offset, 0],
-        [img_size[0] - offset, img_size[1]],
-        [offset, img_size[1]],
-        [offset, 0]
-    ])
-
-    # cv2.polylines(pre_process_image, [src], True, (0,255,255), 3)
+    # 4 destination points to transfer
+    offset = 300 # offset for dst points
+    dst = np.float32([[img_size[0]-offset, 0],[img_size[0]-offset, img_size[1]],
+                      [offset, img_size[1]],[offset, 0]])
 
     # Perform the transformation
     warped_image = warp_image(pre_process_image, src, dst)
@@ -240,5 +252,9 @@ for index, filename in enumerate(test_images):
 
     result = fitted_lane_img
 
-    write_fname = './test_images/tracked' + str(index) + '.jpg'
+    write_fname = './test_images/tracked' + str(index + 1) + '.jpg'
     cv2.imwrite(write_fname, result)
+
+# img = plt.imread('./test_images/straight_lines1.jpg')
+# plt.imshow(img)
+# plt.show()
