@@ -3,10 +3,32 @@ import cv2
 import glob
 import matplotlib.pyplot as plt
 import numpy as np
-
-# Import everything needed to process video clip for later
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
+
+# Define a class to receive the characteristics of each line detection
+class Line():
+    def __init__(self):
+        # was the line detected in the last iteration?
+        self.detected = False
+        # x values of the last n fits of the line
+        self.recent_xfitted = []
+        #average x values of the fitted line over the last n iterations
+        self.bestx = None
+        #polynomial coefficients averaged over the last n iterations
+        self.best_fit = None
+        #polynomial coefficients for the most recent fit
+        self.current_fit = [np.array([False])]
+        #radius of curvature of the line in some units
+        self.radius_of_curvature = None
+        #distance in meters of vehicle center from the line
+        self.line_base_pos = None
+        #difference in fit coefficients between last and new fits
+        self.diffs = np.array([0,0,0], dtype='float')
+        #x values for detected line pixels
+        self.allx = None
+        #y values for detected line pixels
+        self.ally = None
 
 def abs_sobel_thresh(img, orient='x', thresh=(0, 255)):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -78,7 +100,6 @@ def color_threshold(img, sthresh=(0, 255), rthresh=(0, 255)):
     output[(s_binary_output == 1) | (r_binary_output == 1)] = 1
 
     return s_binary_output
-
 
 def warp_image(img, src, dst):
     M = cv2.getPerspectiveTransform(src, dst)
@@ -166,13 +187,9 @@ def find_lane_pixels(binary_warped):
     rightx = nonzerox[right_lane_inds]
     righty = nonzeroy[right_lane_inds]
 
-    return leftx, lefty, rightx, righty, out_img
+    return leftx, lefty, rightx, righty
 
-
-def fit_polynomial(binary_warped):
-    # Find our lane pixels first
-    leftx, lefty, rightx, righty, out_img = find_lane_pixels(binary_warped)
-
+def fit_polynomial(binary_warped, leftx, lefty, rightx, righty):
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
 
@@ -187,16 +204,68 @@ def fit_polynomial(binary_warped):
         left_fitx = 1*ploty**2 + 1*ploty
         right_fitx = 1*ploty**2 + 1*ploty
 
+    return left_fitx, right_fitx, ploty
+
+def search_around_poly(binary_warped, left_fit, right_fit):
+    # HYPERPARAMETER
+    # Choose the width of the margin around the previous polynomial to search
+    # The quiz grader expects 100 here, but feel free to tune on your own!
+    margin = 100
+
+    # Grab activated pixels
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+
+    ### TO-DO: Set the area of search based on activated x-values ###
+    ### within the +/- margin of our polynomial function ###
+    ### Hint: consider the window areas for the similarly named variables ###
+    ### in the previous quiz, but change the windows to our new search area ###
+    left_lane_inds = ((nonzerox > (left_fit[0]*(nonzeroy**2) + left_fit[1]*nonzeroy +
+                    left_fit[2] - margin)) & (nonzerox < (left_fit[0]*(nonzeroy**2) +
+                    left_fit[1]*nonzeroy + left_fit[2] + margin)))
+    right_lane_inds = ((nonzerox > (right_fit[0]*(nonzeroy**2) + right_fit[1]*nonzeroy +
+                    right_fit[2] - margin)) & (nonzerox < (right_fit[0]*(nonzeroy**2) +
+                    right_fit[1]*nonzeroy + right_fit[2] + margin)))
+
+    # Again, extract left and right line pixel positions
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
+
+    # Fit new polynomials
+    left_fitx, right_fitx, ploty = fit_polynomial(binary_warped, leftx, lefty, rightx, righty)
+
     ## Visualization ##
-    # Colors in the left and right lane regions
-    out_img[lefty, leftx] = [255, 0, 0]
-    out_img[righty, rightx] = [0, 0, 255]
+    out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
+    window_img = np.zeros_like(out_img)
+    # Color in left and right line pixels
+    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
 
-    # Plots the left and right polynomials on the lane lines
-    #plt.plot(left_fitx, ploty, color='yellow')
-    #plt.plot(right_fitx, ploty, color='yellow')
+    # Generate a polygon to illustrate the search window area
+    # And recast the x and y points into usable format for cv2.fillPoly()
+    left_line_window1 = np.array([np.transpose(np.vstack([left_fitx-margin, ploty]))])
+    left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx+margin,
+                              ploty])))])
+    left_line_pts = np.hstack((left_line_window1, left_line_window2))
+    right_line_window1 = np.array([np.transpose(np.vstack([right_fitx-margin, ploty]))])
+    right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx+margin,
+                              ploty])))])
+    right_line_pts = np.hstack((right_line_window1, right_line_window2))
 
-    return out_img, left_fitx, right_fitx, ploty
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
+    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
+    result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+
+    # Plot the polynomial lines onto the image
+    plt.plot(left_fitx, ploty, color='yellow')
+    plt.plot(right_fitx, ploty, color='yellow')
+    ## End visualization steps ##
+
+    return result, left_fitx, right_fitx, ploty
 
 def window_mask(width, height, img_ref, center,level):
     output = np.zeros_like(img_ref)
@@ -275,7 +344,7 @@ def do_centroids(warped):
 
     return img_with_windows
 
-def draw_lines(undist, warped, left_fitx, right_fitx, ploty, minv):
+def visualise(undist, warped, leftx, lefty, rightx, righty, left_fitx, right_fitx, ploty, minv):
     # Create an image to draw the lines on
     warp_zero = np.zeros_like(warped).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -294,15 +363,35 @@ def draw_lines(undist, warped, left_fitx, right_fitx, ploty, minv):
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
+    # Define conversions in x and y from pixels space to meters
+    ym_per_pix = 30/720 # meters per pixel in y dimension
+    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+
+    # Calculate radius of curvature
+    left_curverad, right_curverad = measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_per_pix)
+    avg_rad = round(np.mean([left_curverad, right_curverad]), 0)
+    rad_text = 'Radius of Curvature = {}(m)'.format(avg_rad)
+
+    # Calculate the offset of the car on the road
+    camera_center = (left_fitx[-1] + right_fitx[-1]) / 2
+    center_diff = (camera_center - result.shape[1] / 2) * xm_per_pix
+
+    vehicle_text = 'Vehicle is {}m {} of center'.format(round(abs(center_diff), 3), 'left' if (center_diff > 0) else 'right')
+
+    # Show info about radius of curvature and car offset
+    cv2.putText(result,  rad_text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(result,  vehicle_text, (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
     return result
 
-def measure_curvature_real(ploty, left_fit_cr, right_fit_cr, ym_per_pix):
+def measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_per_pix):
     '''
     Calculates the curvature of polynomial functions in meters.
     '''
 
-    # Define y-value where we want radius of curvature
-    # We'll choose the maximum y-value, corresponding to the bottom of the image
+    left_fit_cr = np.polyfit(lefty * ym_per_pix, leftx * xm_per_pix, 2)
+    right_fit_cr = np.polyfit(righty * ym_per_pix, rightx * xm_per_pix, 2)
+
     y_eval = np.max(ploty) * ym_per_pix
 
     left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval + left_fit_cr[1]) ** 2) ** 1.5) / abs(2 * left_fit_cr[0])
@@ -360,23 +449,35 @@ def process_image(img, mtx, dist):
     # Perform the transformation
     warped_image, Minv = warp_image(binary_pixels_of_interest, src, dst)
 
+    # Find our lane pixels first
+    leftx, lefty, rightx, righty = find_lane_pixels(warped_image)
 
-    # Define conversions in x and y from pixels space to meters
-    ym_per_pix = 30/720 # meters per pixel in y dimension
-    xm_per_pix = 3.7/700 # meters per pixel in x dimension
+    # fit a polynomial to the lane lines
+    left_fitx, right_fitx, ploty = fit_polynomial(warped_image, leftx, lefty, rightx, righty)
 
-    # # Find lane pixels and fit a polynomial to the lane lines
-    out_img, left_fitx, right_fitx, ploty = fit_polynomial(warped_image)
+    ## Visualization ##
+    # Create an output image to draw on and visualize the result
+    out_img = np.dstack((warped_image, warped_image, warped_image))
 
-    return draw_lines(undistort, warped_image, left_fitx, right_fitx, ploty, Minv)
+    # Colors in the left and right lane regions
+    out_img[lefty, leftx] = [255, 0, 0]
+    out_img[righty, rightx] = [0, 0, 255]
 
-dist_pickle = pickle.load(open('./camera_cal/calibration_pickle.p', 'rb'))
+    # Plots the left and right polynomials on the lane lines
+    plt.plot(left_fitx, ploty, color='yellow')
+    plt.plot(right_fitx, ploty, color='yellow')
 
-mtx = dist_pickle['mtx']
-dist = dist_pickle['dist']
+    return visualise(undistort, warped_image, leftx, lefty, rightx, righty, left_fitx, right_fitx, ploty, Minv)
+
+def load_camera_calibration():
+    dist_pickle = pickle.load(open('./camera_cal/calibration_pickle.p', 'rb'))
+
+    return dist_pickle['mtx'], dist_pickle['dist']
+
+mtx, dist = load_camera_calibration()
 
 # test_images = glob.glob('./test_images/test*.jpg')
-#
+
 # for index, filename in enumerate(test_images):
 #     img = cv2.imread(filename)
 #
@@ -387,7 +488,7 @@ dist = dist_pickle['dist']
 
 
 video = VideoFileClip('project_video.mp4')
-
+# video = video.subclip(0, 3)
 img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
 
 vid_output = 'project_video_result.mp4'
