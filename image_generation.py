@@ -204,7 +204,7 @@ def fit_polynomial(binary_warped, leftx, lefty, rightx, righty):
         left_fitx = 1*ploty**2 + 1*ploty
         right_fitx = 1*ploty**2 + 1*ploty
 
-    return left_fitx, right_fitx, ploty
+    return left_fitx, right_fitx, ploty, left_fit, right_fit
 
 def search_around_poly(binary_warped, left_fit, right_fit):
     # HYPERPARAMETER
@@ -235,7 +235,7 @@ def search_around_poly(binary_warped, left_fit, right_fit):
     righty = nonzeroy[right_lane_inds]
 
     # Fit new polynomials
-    left_fitx, right_fitx, ploty = fit_polynomial(binary_warped, leftx, lefty, rightx, righty)
+    left_fitx, right_fitx, ploty, left_fit, right_fit = fit_polynomial(binary_warped, leftx, lefty, rightx, righty)
 
     ## Visualization ##
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
@@ -265,7 +265,7 @@ def search_around_poly(binary_warped, left_fit, right_fit):
     plt.plot(right_fitx, ploty, color='yellow')
     ## End visualization steps ##
 
-    return result, left_fitx, right_fitx, ploty
+    return result, left_fitx, right_fitx, ploty, leftx, lefty, rightx, righty, left_fit, right_fit
 
 def window_mask(width, height, img_ref, center,level):
     output = np.zeros_like(img_ref)
@@ -415,6 +415,12 @@ def get_binary_pixels_of_interest(img):
     return output_binary
 
 def process_image(img, mtx, dist):
+    global use_search_around
+    global first_lane_found
+    global left_fit
+    global right_fit
+    print(use_search_around, first_lane_found, left_fit, right_fit)
+
     undistort = cv2.undistort(img, mtx, dist, None, mtx)
 
     # Pre process image and generate binary pixels of interest
@@ -439,21 +445,29 @@ def process_image(img, mtx, dist):
     #                   [cx, cy],[dx, dy]])
 
         # Source points - defined area of lane line edges
-    src = np.float32([[690,450],[1110,img_size[1]],[175,img_size[1]],[595,450]])
+    margin_bottom = 40
+    src = np.float32([[690,450],[1110,img_size[1] - margin_bottom],[175,img_size[1] - margin_bottom],[595,450]])
 
     # 4 destination points to transfer
     offset = 300 # offset for dst points
     dst = np.float32([[img_size[0]-offset, 0],[img_size[0]-offset, img_size[1]],
                       [offset, img_size[1]],[offset, 0]])
 
+    plt.imshow(binary_pixels_of_interest)
+    plt.show()
+
     # Perform the transformation
     warped_image, Minv = warp_image(binary_pixels_of_interest, src, dst)
 
-    # Find our lane pixels first
-    leftx, lefty, rightx, righty = find_lane_pixels(warped_image)
+    if (not use_search_around) or (not first_lane_found):
+        # Find our lane pixels first
+        leftx, lefty, rightx, righty = find_lane_pixels(warped_image)
 
-    # fit a polynomial to the lane lines
-    left_fitx, right_fitx, ploty = fit_polynomial(warped_image, leftx, lefty, rightx, righty)
+        # fit a polynomial to the lane lines
+        left_fitx, right_fitx, ploty, left_fit, right_fit = fit_polynomial(warped_image, leftx, lefty, rightx, righty)
+        first_lane_found = True
+    else:
+        result, left_fitx, right_fitx, ploty, leftx, lefty, rightx, righty, left_fit, right_fit = search_around_poly(warped_image, left_fit, right_fit)
 
     ## Visualization ##
     # Create an output image to draw on and visualize the result
@@ -476,20 +490,27 @@ def load_camera_calibration():
 
 mtx, dist = load_camera_calibration()
 
-# test_images = glob.glob('./test_images/test*.jpg')
+test_images = glob.glob('./test_images/*.png')
+left_fit = 0
+right_fit = 0
 
-# for index, filename in enumerate(test_images):
-#     img = cv2.imread(filename)
+for index, filename in enumerate(test_images):
+    img = cv2.imread(filename)
+    use_search_around = False
+    first_lane_found = False
+
+    result = process_image(img, mtx, dist)
+
+    write_fname = './test_images/challenge_tracking' + str(index + 1) + '.jpg'
+    cv2.imwrite(write_fname, result)
+
+# use_search_around = True
+# first_lane_found = False
+# video_filename = "challenge_video"
+# video_filename = "project_video"
+# video = VideoFileClip(video_filename + '.mp4')
+# video = video.subclip(0, 5)
+# img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
 #
-#     result = process_image(img, mtx, dist)
-#
-#     write_fname = './test_images/tracked' + str(index + 1) + '.jpg'
-#     cv2.imwrite(write_fname, result)
-
-
-video = VideoFileClip('project_video.mp4')
-# video = video.subclip(0, 3)
-img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
-
-vid_output = 'project_video_result.mp4'
-img_stream.write_videofile(vid_output, audio=False)
+# vid_output = video_filename + '_result.mp4'
+# img_stream.write_videofile(vid_output, audio=False)
