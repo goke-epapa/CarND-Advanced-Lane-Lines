@@ -92,7 +92,7 @@ def color_threshold(img, sthresh=(0, 255), rthresh=(0, 255)):
     s_binary_output = np.zeros_like(s_channel)
     s_binary_output[(s_channel > sthresh[0]) & (s_channel <= sthresh[1])] = 1
 
-    r_channel = img[:,:,2]
+    r_channel = img[:,:,0]
     r_binary_output = np.zeros_like(r_channel)
     r_binary_output[(r_channel > rthresh[0]) & (r_channel <= rthresh[1])] = 1
 
@@ -402,15 +402,14 @@ def measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_p
 def get_binary_pixels_of_interest(img):
     # Pre process image and generate binary pixels of interest
     output_binary = np.zeros_like(img[:,:,0])
-    gradx = abs_sobel_thresh(img, 'x', thresh=(20, 100))
+    sxbinary = abs_sobel_thresh(img, 'x', thresh=(20, 100))
     mag_binary = mag_thresh(img, sobel_kernel=9, mag_thresh=(30, 100))
 
     combined = np.zeros_like(mag_binary)
-    combined[((gradx == 1) & (mag_binary == 1))] = 1
+    combined[((sxbinary == 1) & (mag_binary == 1))] = 1
 
-    s_binary = saturation_threshold(img, sthresh=(90, 255))
-
-    output_binary[(combined == 1) & (s_binary == 1) | (combined == 1) ^ (s_binary == 1) ] = 255
+    s_binary = saturation_threshold(img, sthresh=(170, 255))
+    output_binary[(s_binary == 1) | (sxbinary == 1)] = 255
 
     return output_binary
 
@@ -419,7 +418,6 @@ def process_image(img, mtx, dist):
     global first_lane_found
     global left_fit
     global right_fit
-    print(use_search_around, first_lane_found, left_fit, right_fit)
 
     undistort = cv2.undistort(img, mtx, dist, None, mtx)
 
@@ -429,22 +427,7 @@ def process_image(img, mtx, dist):
     # defining perspective transformation area
     img_size = (img.shape[1], img.shape[0])
 
-    # # Source points - defined area of lane line edges
-    # ax = 536
-    # ay = 469
-    # bx = 737
-    # by = 469
-    # cx = 1140
-    # cy = 665
-    # dx = 138
-    # dy = 662
-    # src = np.float32([[ax,ay],[bx, by],[cx, cy],[dx, dy]])
-    #
-    # # 4 destination points to transfer
-    # dst = np.float32([[dx, ay],[cx, by],
-    #                   [cx, cy],[dx, dy]])
-
-        # Source points - defined area of lane line edges
+    # Source points - defined area of lane line edges
     margin_bottom = 40
     src = np.float32([[690,450],[1110,img_size[1] - margin_bottom],[175,img_size[1] - margin_bottom],[595,450]])
 
@@ -452,9 +435,6 @@ def process_image(img, mtx, dist):
     offset = 300 # offset for dst points
     dst = np.float32([[img_size[0]-offset, 0],[img_size[0]-offset, img_size[1]],
                       [offset, img_size[1]],[offset, 0]])
-
-    plt.imshow(binary_pixels_of_interest)
-    plt.show()
 
     # Perform the transformation
     warped_image, Minv = warp_image(binary_pixels_of_interest, src, dst)
@@ -489,28 +469,30 @@ def load_camera_calibration():
     return dist_pickle['mtx'], dist_pickle['dist']
 
 mtx, dist = load_camera_calibration()
-
-test_images = glob.glob('./test_images/*.png')
 left_fit = 0
 right_fit = 0
-
-for index, filename in enumerate(test_images):
-    img = cv2.imread(filename)
-    use_search_around = False
-    first_lane_found = False
-
-    result = process_image(img, mtx, dist)
-
-    write_fname = './test_images/challenge_tracking' + str(index + 1) + '.jpg'
-    cv2.imwrite(write_fname, result)
-
-# use_search_around = True
-# first_lane_found = False
-# video_filename = "challenge_video"
-# video_filename = "project_video"
-# video = VideoFileClip(video_filename + '.mp4')
-# video = video.subclip(0, 5)
-# img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
 #
-# vid_output = video_filename + '_result.mp4'
-# img_stream.write_videofile(vid_output, audio=False)
+# # test_images = glob.glob('./test_images/test*.jpg')
+# #
+# # for index, filename in enumerate(test_images):
+# #     img = cv2.imread(filename)
+# #     use_search_around = False
+# #     first_lane_found = False
+# #
+# #     result = process_image(img, mtx, dist)
+# #
+# #     write_fname = './test_images/tracking' + str(index + 1) + '.jpg'
+# #     cv2.imwrite(write_fname, result)
+#
+use_search_around = True
+first_lane_found = False
+video_filename = "project_video"
+video = VideoFileClip(video_filename + '.mp4')
+img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
+
+vid_output = video_filename + '_result.mp4'
+img_stream.write_videofile(vid_output, audio=False)
+
+# img = cv2.imread('test_images/test1.jpg')
+# result = get_binary_pixels_of_interest(img)
+# cv2.imwrite('output_images/binary_combo.jpg', result)

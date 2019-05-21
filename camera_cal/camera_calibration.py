@@ -58,3 +58,7 @@ dist_pickle = {}
 dist_pickle['mtx'] = mtx
 dist_pickle['dist'] = dist
 pickle.dump(dist_pickle, open('./calibration_pickle.p', 'wb'))
+
+# img = cv2.imread('test_images/test1.jpg')
+# undistort = cv2.undistort(img, mtx, dist, None, mtx)
+# cv2.imwrite('output_images/distortion_corrected.jpg', undistort)
