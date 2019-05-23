@@ -124,7 +124,7 @@ def find_lane_pixels(binary_warped):
     # Set the width of the windows +/- margin
     margin = 100
     # Set minimum number of pixels found to recenter window
-    minpix = 80
+    minpix = 200
 
     # Set height of windows - based on nwindows above and image shape
     window_height = np.int(binary_warped.shape[0]//nwindows)
@@ -208,9 +208,7 @@ def fit_polynomial(binary_warped, leftx, lefty, rightx, righty):
 
 def search_around_poly(binary_warped, left_fit, right_fit):
     # HYPERPARAMETER
-    # Choose the width of the margin around the previous polynomial to search
-    # The quiz grader expects 100 here, but feel free to tune on your own!
-    margin = 100
+    margin = 50
 
     # Grab activated pixels
     nonzero = binary_warped.nonzero()
@@ -256,8 +254,8 @@ def search_around_poly(binary_warped, left_fit, right_fit):
     right_line_pts = np.hstack((right_line_window1, right_line_window2))
 
     # Draw the lane onto the warped blank image
-    cv2.fillPoly(window_img, np.int_([left_line_pts]), (0,255, 0))
-    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,255, 0))
+    cv2.fillPoly(window_img, np.int_([left_line_pts]), (255,0, 0))
+    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0,0, 255))
     result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
 
     # Plot the polynomial lines onto the image
@@ -356,6 +354,8 @@ def visualise(undist, warped, leftx, lefty, rightx, righty, left_fitx, right_fit
 
     # Draw the lane onto the warped blank image
     cv2.fillPoly(color_warp, np.int_([pts]), (0,255, 0))
+    cv2.fillPoly(color_warp, np.int_([pts_left]), (255,0, 0))
+    cv2.fillPoly(color_warp, np.int_([pts_right]), (0,0, 255))
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
     newwarp = cv2.warpPerspective(color_warp, minv, (undist.shape[1], undist.shape[0]))
@@ -408,8 +408,10 @@ def get_binary_pixels_of_interest(img):
     combined = np.zeros_like(mag_binary)
     combined[((sxbinary == 1) & (mag_binary == 1))] = 1
 
-    s_binary = saturation_threshold(img, sthresh=(170, 255))
-    output_binary[(s_binary == 1) | (sxbinary == 1)] = 255
+    s_binary = saturation_threshold(img, sthresh=(120, 255))
+    # output_binary[(s_binary == 1) | (combined == 1)] = 255
+
+    output_binary[(combined == 1) & (s_binary == 1) | (combined == 1) ^ (s_binary == 1) ] = 255
 
     return output_binary
 
@@ -428,7 +430,7 @@ def process_image(img, mtx, dist):
     img_size = (img.shape[1], img.shape[0])
 
     # Source points - defined area of lane line edges
-    margin_bottom = 40
+    margin_bottom = 10
     src = np.float32([[690,450],[1110,img_size[1] - margin_bottom],[175,img_size[1] - margin_bottom],[595,450]])
 
     # 4 destination points to transfer
@@ -489,10 +491,13 @@ first_lane_found = False
 video_filename = "project_video"
 video = VideoFileClip(video_filename + '.mp4')
 img_stream = video.fl_image(lambda image: process_image(image, mtx, dist))
-
 vid_output = video_filename + '_result.mp4'
 img_stream.write_videofile(vid_output, audio=False)
 
+#
 # img = cv2.imread('test_images/test1.jpg')
+# result = process_image(img, mtx, dist)
+# plt.imshow(result)
+# plt.show()
 # result = get_binary_pixels_of_interest(img)
 # cv2.imwrite('output_images/binary_combo.jpg', result)
