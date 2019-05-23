@@ -73,39 +73,42 @@ Here is an example of a distortion-corrected image
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
-I used a combination of x derivative, magnitude and saturation thresholds to generate a binary image (thresholding steps in `get_binary_pixels_of_interest` method in `image_generation.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
+I used a combination of x derivative, magnitude and saturation thresholds to generate a binary image (thresholding steps in `get_binary_pixels_of_interest` method in `image_generation.py`).  Here's an example of my output for this step.
 
 ![alt text][image4]
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
+The code for my perspective transform includes a function called `warp_image()`, which appears in lines 104 through 108 in the file `image_generation.py`.  The `warp_image()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points. The src points are hardcoded, but for the bottom points the `margin_bottom` is removed to cater for the car hood, and for destination points, the points are calculated relative to an `offset`. The points `src` and `dst` points are shown below:
 
 ```python
-src = np.float32(
-    [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 10), img_size[1]],
-    [(img_size[0] * 5 / 6) + 60, img_size[1]],
-    [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4), 0],
-    [(img_size[0] / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), 0]])
+margin_bottom = 40
+src = np.float32([
+	[690,450],
+	[1110,img_size[1] - margin_bottom],
+	[175,img_size[1] - margin_bottom],
+	[595,450]])
+
+offset = 300 # offset for d	st points
+dst = np.float32([
+	[img_size[0]-offset, 0],
+	[img_size[0]-offset, img_size[1]],
+    [offset, img_size[1]],
+    [offset, 0]])
 ```
 
 This resulted in the following source and destination points:
 
 | Source        | Destination   | 
 |:-------------:|:-------------:| 
-| 585, 460      | 320, 0        | 
-| 203, 720      | 320, 720      |
-| 1127, 720     | 960, 720      |
-| 695, 460      | 960, 0        |
+| 690,  450     | 980, 0        | 
+| 1110, 710     | 980, 720      |
+| 175,  710     | 300, 720      |
+| 595,  450     | 300, 0        |
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-![alt text][image4]
+![alt text][image5]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
@@ -129,7 +132,7 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
+Here's a [link to my video result](./project_video_result.mp4)
 
 ---
 
@@ -137,4 +140,10 @@ Here's a [link to my video result](./project_video.mp4)
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.  
+Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.
+
+I used the sliding window technique to detech lane lines.
+
+My pipeline will fail in very sunny light conditions because the lane lines are not easily detected by the current approach.
+
+
