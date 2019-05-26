@@ -143,6 +143,6 @@ I used the sliding window technique to detect the lane line the first time, then
 
 My pipeline will fail in very sunny weather conditions where the lane lines become very faint because the lane lines are not easily detected by the current approach. My recommendation would be to use a more advanced technique to detect the lane line.
 
-I found it hard to process the challenge video, majorly because the line in the middle of lane is detected a the lane line.
+I found it hard to process the challenge video, majorly because the line in the middle of lane is detected as a lane line.
 
 
