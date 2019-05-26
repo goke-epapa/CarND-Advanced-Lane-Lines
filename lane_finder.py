@@ -364,8 +364,7 @@ def visualise(undist, warped, leftx, lefty, rightx, righty, left_fitx, right_fit
     xm_per_pix = 3.7/700 # meters per pixel in x dimension
 
     # Calculate radius of curvature
-    left_curverad, right_curverad = measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_per_pix)
-    avg_rad = round(np.mean([left_curverad, right_curverad]), 0)
+    avg_rad = measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_per_pix)
     rad_text = 'Radius of Curvature = {}(m)'.format(avg_rad)
 
     # Calculate the offset of the car on the road
@@ -393,7 +392,9 @@ def measure_curvature_real(ploty, leftx, lefty, rightx, righty, xm_per_pix, ym_p
     left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval + left_fit_cr[1]) ** 2) ** 1.5) / abs(2 * left_fit_cr[0])
     right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval + right_fit_cr[1]) ** 2) ** 1.5) / abs(2 * right_fit_cr[0])
 
-    return left_curverad, right_curverad
+    avg_rad = round(np.mean([left_curverad, right_curverad]), 0)
+
+    return avg_rad
 
 def get_binary_pixels_of_interest(img):
     # Pre process image and generate binary pixels of interest
